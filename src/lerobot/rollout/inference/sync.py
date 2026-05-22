@@ -26,6 +26,7 @@ from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.policies.utils import make_robot_action, prepare_observation_for_inference
 from lerobot.processor import PolicyProcessorPipeline
 
+from ..debug_io import action_by_name, maybe_debug_policy_io
 from .base import InferenceEngine
 
 logger = logging.getLogger(__name__)
@@ -112,9 +113,29 @@ class SyncInferenceEngine(InferenceEngine):
                 observation, self._device, self._task, self._robot_type
             )
             observation = self._preprocessor(observation)
+            maybe_debug_policy_io(
+                {
+                    "event": "sync_policy_input",
+                    "preprocessed_observation": observation,
+                }
+            )
             action = self._policy.select_action(observation)
+            maybe_debug_policy_io(
+                {
+                    "event": "sync_policy_raw_action",
+                    "raw_action": action,
+                    "raw_action_by_name": action_by_name(action, self._ordered_action_keys),
+                }
+            )
             action = self._postprocessor(action)
         action_tensor = action.squeeze(0).cpu()
+        maybe_debug_policy_io(
+            {
+                "event": "sync_policy_processed_action",
+                "processed_action": action_tensor,
+                "processed_action_by_name": action_by_name(action_tensor, self._ordered_action_keys),
+            }
+        )
 
         # Reorder to match dataset action ordering so the caller can treat
         # the returned tensor uniformly across backends.

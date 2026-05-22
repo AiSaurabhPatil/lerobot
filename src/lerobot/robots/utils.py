@@ -64,6 +64,10 @@ def make_robot_from_config(config: RobotConfig) -> Robot:
         from .openarm_follower import OpenArmFollower
 
         return OpenArmFollower(config)
+    elif config.type == "ros_isaac":
+        from .ros_isaac import RosIsaacRobot
+
+        return RosIsaacRobot(config)
     elif config.type == "bi_openarm_follower":
         from .bi_openarm_follower import BiOpenArmFollower
 

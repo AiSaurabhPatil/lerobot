@@ -434,8 +434,8 @@ def test_merge_with_different_lengths():
 # merge() delay validation tests
 
 
-def test_merge_validates_delay_consistency(action_queue_rtc_enabled, sample_actions, caplog):
-    """Test merge() validates that real_delay matches action index difference."""
+def test_merge_uses_consumed_index_when_delay_mismatches(action_queue_rtc_enabled, sample_actions, caplog):
+    """Test merge() prefers actual consumed actions over wall-clock delay."""
     import logging
 
     caplog.set_level(logging.WARNING)
@@ -447,7 +447,8 @@ def test_merge_validates_delay_consistency(action_queue_rtc_enabled, sample_acti
     for _ in range(5):
         action_queue_rtc_enabled.get()
 
-    # Merge with mismatched delay (should log warning)
+    # Merge with mismatched delay. The consumed index is authoritative because
+    # it records how many actions the robot actually executed during inference.
     # We consumed 5 actions, so index is 5. If we pass action_index_before_inference=0,
     # then indexes_diff=5, but if real_delay=3, it will warn
     action_queue_rtc_enabled.merge(
@@ -457,8 +458,8 @@ def test_merge_validates_delay_consistency(action_queue_rtc_enabled, sample_acti
         action_index_before_inference=0,
     )
 
-    # Check warning was logged
-    assert "Indexes diff is not equal to real delay" in caplog.text
+    assert "Indexes diff is not equal to real delay" not in caplog.text
+    assert action_queue_rtc_enabled.queue[0].equal(sample_actions["processed"][5])
 
 
 def test_merge_no_warning_when_delays_match(action_queue_rtc_enabled, sample_actions, caplog):

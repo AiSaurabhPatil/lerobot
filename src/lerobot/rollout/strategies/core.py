@@ -28,6 +28,7 @@ from lerobot.utils.feature_utils import build_dataset_frame
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.visualization_utils import log_rerun_data
 
+from ..debug_io import action_by_name, maybe_debug_policy_io
 from ..inference import InferenceEngine
 
 if TYPE_CHECKING:
@@ -289,6 +290,16 @@ def send_next_action(
     if interpolator.needs_new_action():
         obs_frame = build_dataset_frame(features, obs_processed, prefix=OBS_STR)
         action_tensor = engine.get_action(obs_frame)
+        maybe_debug_policy_io(
+            {
+                "event": "policy_get_action",
+                "observation_frame": obs_frame,
+                "queued_action": action_tensor,
+                "queued_action_by_name": action_by_name(action_tensor, ordered_keys)
+                if action_tensor is not None
+                else None,
+            }
+        )
         if action_tensor is not None:
             interpolator.add(action_tensor.cpu())
 
@@ -300,5 +311,14 @@ def send_next_action(
         raise ValueError(f"Interpolated tensor length ({len(interp)}) != action keys ({len(ordered_keys)})")
     action_dict = {k: interp[i].item() for i, k in enumerate(ordered_keys)}
     processed = ctx.processors.robot_action_processor((action_dict, obs_raw))
+    maybe_debug_policy_io(
+        {
+            "event": "send_action",
+            "interpolated_action": interp,
+            "action_dict": action_dict,
+            "processed_robot_action": processed,
+            "raw_robot_state": {k: obs_raw[k] for k in ordered_keys if k in obs_raw},
+        }
+    )
     ctx.hardware.robot_wrapper.send_action(processed)
     return action_dict

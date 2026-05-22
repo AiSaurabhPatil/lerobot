@@ -42,6 +42,7 @@ from lerobot.processor import (
 )
 from lerobot.utils.feature_utils import build_dataset_frame
 
+from ..debug_io import action_by_name, maybe_debug_policy_io
 from ..robot_wrapper import ThreadSafeRobot
 from .base import InferenceEngine
 
@@ -98,6 +99,7 @@ class RTCInferenceEngine(InferenceEngine):
         robot_wrapper: ThreadSafeRobot,
         rtc_config: RTCConfig,
         hw_features: dict,
+        ordered_action_keys: list[str],
         task: str,
         fps: float,
         device: str | None,
@@ -112,6 +114,7 @@ class RTCInferenceEngine(InferenceEngine):
         self._robot = robot_wrapper
         self._rtc_config = rtc_config
         self._hw_features = hw_features
+        self._ordered_action_keys = ordered_action_keys
         self._task = task
         self._fps = fps
         self._device = device or "cpu"
@@ -277,12 +280,26 @@ class RTCInferenceEngine(InferenceEngine):
                         delay = math.ceil(latency / time_per_chunk) if latency else 0
 
                         obs_batch = build_dataset_frame(self._hw_features, obs, prefix="observation")
+                        maybe_debug_policy_io(
+                            {
+                                "event": "rtc_observation_frame",
+                                "observation_frame": obs_batch,
+                            }
+                        )
                         obs_batch = prepare_observation_for_inference(
                             obs_batch, policy_device, self._task, self._robot.robot_type
                         )
                         obs_batch["task"] = [self._task]
 
                         preprocessed = self._preprocessor(obs_batch)
+                        maybe_debug_policy_io(
+                            {
+                                "event": "rtc_policy_input",
+                                "preprocessed_observation": preprocessed,
+                                "prev_actions": prev_actions,
+                                "inference_delay": delay,
+                            }
+                        )
 
                         if prev_actions is not None and self._relative_step is not None:
                             # Rebase against the raw cached state so the leftover tail stays in
@@ -307,9 +324,10 @@ class RTCInferenceEngine(InferenceEngine):
                         actions = self._policy.predict_action_chunk(
                             preprocessed, inference_delay=delay, prev_chunk_left_over=prev_actions
                         )
-
                         original = actions.squeeze(0).clone()
                         processed = self._postprocessor(actions).squeeze(0)
+                        if policy_device.type == "cuda":
+                            torch.cuda.synchronize(policy_device)
                         new_latency = time.perf_counter() - current_time
                         new_delay = math.ceil(new_latency / time_per_chunk)
 
@@ -322,6 +340,29 @@ class RTCInferenceEngine(InferenceEngine):
                             latency_tracker.add(new_latency)
 
                         queue.merge(original, processed, new_delay, idx_before)
+
+                        maybe_debug_policy_io(
+                            {
+                                "event": "rtc_policy_raw_action_chunk",
+                                "raw_action_chunk": actions,
+                                "raw_first_action_by_name": action_by_name(
+                                    actions.squeeze(0)[0], self._ordered_action_keys
+                                ),
+                                "measured_latency_s": new_latency,
+                                "measured_delay_steps": new_delay,
+                            }
+                        )
+                        maybe_debug_policy_io(
+                            {
+                                "event": "rtc_policy_processed_action_chunk",
+                                "processed_action_chunk": processed,
+                                "processed_first_action_by_name": action_by_name(
+                                    processed[0], self._ordered_action_keys
+                                ),
+                                "measured_latency_s": new_latency,
+                                "measured_delay_steps": new_delay,
+                            }
+                        )
 
                         if (
                             is_warmup

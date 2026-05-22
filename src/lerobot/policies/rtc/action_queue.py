@@ -236,11 +236,11 @@ class ActionQueue:
         if action_index_before_inference is not None:
             indexes_diff = max(0, self.last_index - action_index_before_inference)
             if indexes_diff != real_delay:
-                logger.warning(
-                    "Indexes diff is not equal to real delay. indexes_diff=%d, real_delay=%d",
+                logger.debug(
+                    "Using consumed action count instead of wall-clock delay. indexes_diff=%d, real_delay=%d",
                     indexes_diff,
                     real_delay,
                 )
-                return real_delay
+                return indexes_diff
 
         return effective_delay
